@@ -4,7 +4,8 @@
 
 This package contains resources for the generation of 2-dimensional random line processes, as well as their intersection points. In particular, there is a tailored version of the Bentley-Ottman algorithm.  
 
-![Poisson intersection process](docs/poisson_intersection.png)
+<img src="docs/poisson_intersection.png" alt="poisson intersection" width="300"/>
+
 
 ## Line objects
 
