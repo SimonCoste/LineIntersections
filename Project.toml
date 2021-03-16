@@ -3,6 +3,10 @@ uuid = "125b3fd6-e0d7-405d-ad3f-b214ae047a8d"
 authors = ["Simon <simon.coste@inria.fr> and contributors"]
 version = "0.1.0"
 
+[deps]
+DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+
 [compat]
 julia = "1"
 
