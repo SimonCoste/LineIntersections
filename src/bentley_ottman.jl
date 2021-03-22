@@ -2,213 +2,158 @@ using DataStructures, Plots
 #include("generator.jl")
 #include("line_tools.jl")
 
+#########################################################################
+# ------------------- TYPES FOR THE BO ALGORITHM  -----------------------
+#########################################################################
+
 import Base:<
 
-global 𝐱 = -2.0
-
-function <(
-    ℓ₁::Line, 
-    ℓ₂::Line
-    )
-    """
-    Dynamic order on Lines, depending on the float 𝐱. 
-    ℓ₁ < ℓ₂ is true when the intersection of ℓ₁ with
-    the vertical line X with abscisse 𝐱 is below the intersection of ℓ₂
-    with X. 
-    """
-    α = point_in_line(ℓ₁, 𝐱)
-    β = point_in_line(ℓ₂, 𝐱)
-    return α<β
+struct Event
+    point::Array{Float64, 1}
+    nature::String
+    assets::Union{RootedLine, Tuple{RootedLine, RootedLine}}
 end
 
-
-function check_intersection_and_insert!(X, 
-    X_dict, 
-    intersections, 
-    l1::Line, 
-    l2::Line,
-    r)
-    """
-    Tests if two lines intersect in the ball, then adds them to X and X_dict.
-    """
-    point = l1 ∩ l2
-    if normof(point)<r
-        insert!(X, point)
-        X_dict[point] = Set([l1, l2])
-        push!(intersections, point)
-    end
+function <(e::Event, f::Event)
+    return e.point < f.point
 end
 
-function handle_intersection_point!(L, 
-    X, 
-    X_dict, 
-    intersections, 
-    ℓ1, 
-    ℓ2, 
-    absc)
-    """
-    This function handles the case of intersection points. 
-    In particular it switches the lines who intersect by setting the sweep line 
-    slightly to the right of its real position, but to the left of the next event
-    which will occur.  
-    """
-    previous_rank = [sorted_rank(L, ℓ1), sorted_rank(L, ℓ2)]
+#########################################################################
+# ------------------- PREPROCESSING  ------------------------------------
+#########################################################################
 
-    if previous_rank[1]<previous_rank[2]
-        below = ℓ2
-        above = ℓ1
-    else
-        below = ℓ1
-        above = ℓ2
+function insert_endpoints_of_one_line!(X::AVLTree{Event}, l::RootedLine, r::Real)
+    (startpoint, endpoint) = intersection_with_circle(l, r)
+    startevent = Event(startpoint, "startpoint", l)
+    endevent = Event(endpoint, "endpoint", l)
+    insert!(X, startevent) ; insert!(X, endevent)
+end
+
+function initialize_event_queue(H::Array{Line, 1}, r::Real)
+    X = AVLTree{Event}()
+    t = SweepLine(-r-1)
+    R = [RootedLine(l, t) for l in H]
+    for l in R
+        insert_endpoints_of_one_line!(X, l, r)
     end
+    return R, X, t
+end
 
-    up_index = maximum(previous_rank)
-    bel_index = minimum(previous_rank)
-    
-    if bel_index!=1
-        line_to_test_below = L[bel_index-1]
-        intersection_point = line_to_test_below ∩ below
-        if normof(intersection_point)<1 && intersection_point[1] > absc
-            if !haskey(X, intersection_point)
-                insert!(X, intersection_point)
-                X_dict[intersection_point]=Set([below, line_to_test_below])
-                push!(intersections, intersection_point)
-            end
+#########################################################################
+# ------------------- HANDLING EVENTS  ----------------------------------
+#########################################################################
+
+function check_intersection_and_update!(a::Real, X::AVLTree{Event}, list, l1::RootedLine, l2::RootedLine, r::Real)
+    """
+    Checks if l1 and l2 intersect to the right of the sweep line at t and inside the disk of 
+    radius r. If yes, checks if the intersection point had already been seen. If no, 
+    registers this point in the list and add the event to the X-structure. 
+    """
+    if !haskey(list, Set([l1, l2])) #do nothing
+        point::Array{Float64} = l1 ∩ l2
+        if normof(point) < r && point[1] > a
+            parents = point_in_line(l1, a)<point_in_line(l2, a) ? (l1, l2) : (l2, l1)
+            e = Event(point, "intersection", parents) 
+            insert!(X, e) ; list[Set([l1, l2])] = point 
         end
     end
-
-    if up_index!=L.count 
-        line_to_test_above = L[up_index + 1]
-        intersection_point = line_to_test_above ∩ above
-        if normof(intersection_point)<1 && intersection_point[1] > absc
-            if !haskey(X, intersection_point)
-                insert!(X, intersection_point)
-                X_dict[intersection_point]=Set([above, line_to_test_above])
-                push!(intersections, intersection_point)
-            end
-        end
-    end
-
-    delete!(L, ℓ1)
-    delete!(L, ℓ2)
-    
-    next_future_event = X[1][1] 
-    global 𝐱 = 0.5 * (absc + next_future_event)
-    
-    insert!(L, ℓ1)
-    insert!(L, ℓ2)
 end
 
-sort_by_first_coordinate(a::Array{Float64, 2}) = a[:, sortperm(a[1, :])]
-
-
-function intersections_bentley_ottman(H::Array{Line} ; r=1.)
-    """
-    A first (naive) implementation of the bentley_ottman algorithm for 
-    computing the intersections in a circle of radius r. 
-
-    Inputs:
-        - H = an array or a list of Lines
-        - r, a positive number (default 1).
-
-    Outputs:
-        - a 2×M array whose columns are the coordinates of the M intersection points of the lines in H.
-
-    Current version does not support multiple intersection points nor vertical lines. 
-    """
-
-
-    ℒ = AVLTree{Line}() #Y-structure
-    X = AVLTree{Array{Float64}}()
-    X_dict = Dict{Array{Float64, 1}, Union{Int, Set{Line}}}()
-    intersections  = Array{Array{Float64, 1}, 1}()
-    step = 0
+function handle_startpoint!(t::SweepLine, X::AVLTree{Event}, ℒ::AVLTree{RootedLine}, list, e::Event, r::Real)
+    point = e.point
+    ℓ = e.assets
+    t.r = point[1] #update the sweep line
+    insert!(ℒ, ℓ)
+    line_index = sorted_rank(ℒ, ℓ)
     
-    points = get_endpoints(H)
-    for i in 1:2*size(H)[1]
-        p = points[:, i]
-        insert!(X, p)
-        X_dict[p] = i
+    if ℒ.count>1
+        if line_index==1 
+            successor = ℒ[line_index+1]
+            check_intersection_and_update!(t.r, X, list, ℓ, successor, r)
+        elseif line_index==ℒ.count
+            predecessor = ℒ[line_index-1]
+            check_intersection_and_update!(t.r, X, list, ℓ, predecessor, r)
+        else
+            successor = ℒ[line_index+1]
+            predecessor = ℒ[line_index-1]
+            check_intersection_and_update!(t.r, X, list, ℓ, successor, r)
+            check_intersection_and_update!(t.r, X, list, ℓ, predecessor, r)
+        end
+    end
+end
+
+function handle_endpoint!(t::SweepLine, X::AVLTree{Event}, ℒ::AVLTree{RootedLine}, list, e::Event, r::Real)
+    point = e.point
+    ℓ = e.assets
+    t.r = point[1]    #update the sweep line
+    line_index = sorted_rank(ℒ, ℓ)
+
+    if line_index!=1 && line_index!=ℒ.count
+        successor = ℒ[line_index+1]
+        predecessor = ℒ[line_index-1]
+        check_intersection_and_update!(t.r, X, list, successor, predecessor, r)
+    end
+    delete!(ℒ, ℓ)
+end
+
+function handle_intersection!(t::SweepLine, X::AVLTree{Event}, ℒ::AVLTree{RootedLine}, list, e::Event, r::Real)
+    point = e.point 
+    (lower, upper) = e.assets
+    (lower_rank, upper_rank) = [sorted_rank(ℒ, lower), sorted_rank(ℒ, upper)] #simplify ?
+
+    if lower_rank!=1
+        check_intersection_and_update!(point[1], X, list, upper, ℒ[lower_rank-1], r)
     end
 
+    if upper_rank!=ℒ.count
+        check_intersection_and_update!(point[1], X, list, lower, ℒ[upper_rank+1], r)
+    end
+
+    delete!(ℒ, lower) ; delete!(ℒ, upper)
+    next_future_event = X[1]
+    mid = 0.5 * (point[1] + next_future_event.point[1])
+    t.r = mid
+    insert!(ℒ, upper) ; insert!(ℒ, lower)
+
+end
+
+#########################################################################
+# -------------------MAIN FUNCTION --------------------------------------
+#########################################################################
+
+function find_all_intersections(H::Array{Line} ; r::Real = 1.)
+
+    @assert r>0 throw(ArgumentError("Radius r must me >0."))
+
+    R, X, t = initialize_event_queue(H, r)
+    list = Dict{Set{RootedLine}, Array{Float64}}()
+    Y = AVLTree{RootedLine}()
 
     while X.count > 0
-        step = step + 1
-        p = X[1]
-        delete!(X, p)
-        i = X_dict[p]
 
-        if typeof(i)==Set{Line} #intersection point
-            
-            L = Array{Line}(undef, 2)
-            k=1
-            for line in i
-                L[k] = line
-                k = k+1
-            end
+        event = X[1] 
+        delete!(X, event)
 
-            handle_intersection_point!(ℒ, X, X_dict, intersections, L[1], L[2], p[1])
-        elseif i%2!=1 #endpoint
-            
-            ℓ = H[(i+1)÷2]
-            line_index = sorted_rank(ℒ, ℓ)
-            global 𝐱 = p[1]
-
-            if line_index!=1 && line_index!=ℒ.count
-                successor = ℒ[line_index+1]
-                predecessor = ℒ[line_index-1]
-                delete!(ℒ, ℓ)
-                intersection_point = successor ∩ predecessor
-                if normof(intersection_point)<1 && intersection_point[1]>𝐱
-                    if !haskey(X, intersection_point)
-                        insert!(X, intersection_point)
-                        X_dict[intersection_point]=Set([successor, predecessor])
-                        push!(intersections, intersection_point)
-                    end
-                end
-
-            else
-                delete!(ℒ, ℓ)
-            end
-
-        else #beginning point
-
-            global 𝐱 = p[1]
-
-            ℓ = H[(i+1)÷2]
-            insert!(ℒ, ℓ)
-            line_index = sorted_rank(ℒ, ℓ)
-            
-            if ℒ.count>1
-                if line_index==1 
-                    successor = ℒ[line_index+1]
-                    check_intersection_and_insert!(X, X_dict, intersections, ℓ, successor, r)
-                elseif line_index==ℒ.count
-                    predecessor = ℒ[line_index-1]
-                    check_intersection_and_insert!(X, X_dict, intersections, ℓ, predecessor, r)
-                else
-                    successor = ℒ[line_index+1]
-                    predecessor = ℒ[line_index-1]
-                    check_intersection_and_insert!(X, X_dict, intersections, ℓ, successor, r)
-                    check_intersection_and_insert!(X, X_dict, intersections, ℓ, predecessor, r)
-                end
-            end
+        if event.nature == "startpoint"
+            handle_startpoint!(t, X, Y, list, event, r)
+        elseif event.nature == "endpoint"
+            handle_endpoint!(t, X, Y, list, event, r)
+        else 
+            handle_intersection!(t, X, Y, list, event, r)
         end
-
     end
-    
-    res = hcat(intersections...)
-    return sort_by_first_coordinate(res)
 
+    return list
 end
 
-
-
-
 function intersections_naive(H::Array{Line}; r=1.)
+    """
+    Loops all over the pairs of distinct lines, 
+    yielding a O(n^2) algorithm. 
+    """
     s = size(H)[1]
     k = Int(s*(s-1)/2)
-    res = Array{Array{Float64, 1}, 1}()
+    res = Set{Array{Float64, 1}}()
     for i in 1:s
         for j in 1:(i-1)
             p = H[i] ∩ H[j]
@@ -217,30 +162,26 @@ function intersections_naive(H::Array{Line}; r=1.)
             end
         end
     end
-    res = hcat(res...)
-    return sort_by_first_coordinate(res)
+
+    return res
 end
 
 
 
 
 
+# H = [Line(0.7544959394550933, 0.15515333752706018)
+# Line(1.6832151948996787, 0.04401847448027585)
+# Line(5.698726857470466, 0.07601306086085136)
+# Line(4.232076668938423, 0.3089918936601266)]
 
 
-#n = 10 #number of lines
-#H = [Line(pi/4, 0.1), Line(-pi/2, 0.9)]
-#H = hyperplanes_poisson(1, n)
-#H = [ Line(4.0461103038672945, 0.7829732875581323), Line(1.8885159415469313, 0.455802052465595), Line(3.4109485517087896, 0.16889664754111178)]
-#H = hyperplanes_poisson(1, n)
 
+# #find_all_intersections(H[1:2])
 
-#bores = intersections_bentley_ottman(H)
-#naiveres = intersections_naive(H)
+# H = hyperplanes_poisson(1, 5)
 
-# dessin = draw_lines(H)
-# points = hcat(collect(keys(res))...)
-# scatter!(points[1,:], points[2,:], 
-# markersize=0.9)
-# plot!(legend=:none, xlims=(-1, 1), ylims=(-1,1),
-# aspect_ratio=:equal)
-# dessin
+# include("generator.jl")
+# @time a = find_all_intersections(H)
+# @time b = intersections_naive(H)
+# length(a)==length(b)

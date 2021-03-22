@@ -1,8 +1,13 @@
 
-import Base: ∩
+import Base:∩,<
 
+##################################################
+# Types for lines 
+##################################################
 
-struct Line
+abstract type AbstractLine end
+
+struct Line <: AbstractLine
     """
     Lines are described by the polar coordinates (θ, r) 
     of the orthogonal projection of the origin. 
@@ -14,15 +19,48 @@ struct Line
     r::Float64
 end
 
+mutable struct SweepLine <: AbstractLine
+    """
+    A vertical line, for the BO algorithm.
+    """
+    θ::Float64
+    r::Float64
+    SweepLine(r) = new(0, r)
+end
+
+struct RootedLine <: AbstractLine
+    """
+    It is a line, rooted at a certain x-position given by
+    the sweep-line. 
+    """
+    θ::Float64
+    r::Float64
+    ∅::SweepLine
+    RootedLine(l::Line, sl::SweepLine) = new(l.θ, l.r, sl)
+end
+
+################################################
+# Methods 
+################################################
 
 
-
-function point_in_line(ℓ::Line, x::Float64)::Float64
+function point_in_line(ℓ::AbstractLine, x::Float64)::Float64
     """
     Outputs the unique y such that (x, y) ∈ ℓ.
     """
     r = ℓ.r ; θ = ℓ.θ
+    @assert θ!=0 throw(error("No vertical lines."))
     return r/sin(θ) - x/tan(θ)
+end
+
+function <(l1::RootedLine, l2::RootedLine)
+    """
+    A rooted line is smaller than another if the intersection with
+    its sweepline is smaller than the other.
+    """ 
+    a = point_in_line(l1, l1.∅.r)
+    b = point_in_line(l2, l2.∅.r)
+    return a<b
 end
 
 function point_in_line(l::Line, x::Array{Float64})::Array{Float64}
@@ -33,24 +71,26 @@ function point_in_line(l::Line, x::Array{Float64})::Array{Float64}
     return r/sin(θ) .- ( x ./ tan(θ) )
 end
 
-
-function intersection_with_circle(l::Line, R::Float64=1.)
+function intersection_with_circle(l::AbstractLine, R::Real)
     """
     Computes the two intersection of line l with the 
     circle of radius R centered at zero. 
 
-    If there are no such intersections, raises an AssertionError. 
+    If there are no such intersections, returns nothing.
+    Outputs the two points from left to right. 
     """
-    @assert R>l.r "circle radius R must be greater than r, the line distance to 0"
-    α = acos(l.r / R)
-    x₁ = Array([R * cos(l.θ + α), R * sin(l.θ + α)])
-    x₂ = Array([R * cos(l.θ - α), R * sin(l.θ - α)])
-    return Array([x₁, x₂])
+    if R <= l.r
+        return nothing
+    else
+        α = acos(l.r / R)
+        x₁ = Array([R * cos(l.θ + α), R * sin(l.θ + α)])
+        x₂ = Array([R * cos(l.θ - α), R * sin(l.θ - α)])
+        return isless(x₁, x₂) ? (x₁, x₂) : (x₂, x₁)
+    end
 
 end
 
-
-function get_endpoints(L::Array{Line, 1})
+function get_endpoints(L::Array{Line, 1}, R::Real)
     """
     Given an array of n lines, computes the intersections of each
     line with a given circle of radius 1, then outputs the 2n intersection points. 
@@ -66,22 +106,16 @@ function get_endpoints(L::Array{Line, 1})
     output = zeros(2, 2 * n) #first line is x-coordinate of point
     
     for i in 1:n
-
         (a,b) = intersection_with_circle(L[i])
-        
-        if a[1]<b[1]
-            output[:, 2*i-1] = a
-            output[:, 2*i] = b
-        else
-            output[:, 2*i-1] = b
-            output[:, 2*i] = a
-        end
+        output[:, 2*i-1] = a
+        output[:, 2*i] = b
     end
     return output
 end
 
+normof(p) = p[1]^2 + p[2]^2
 
-function ∩(l1::Line, l2::Line)::Array{Float64}
+function ∩(l1::AbstractLine, l2::AbstractLine)::Array{Float64}
     """
     Input: 
         two nonparallel line objects l1 and l2.
@@ -95,28 +129,3 @@ function ∩(l1::Line, l2::Line)::Array{Float64}
     x = u/d
     return Array([x, point_in_line(l1, x)])
 end
-
-normof(p) = p[1]^2 + p[2]^2
-
-
-function draw(l::Line)
-    x = collect(range(-1, stop=1, length=100))
-    plot!(x, point_in_line(l, x))
-end
-
-
-
-function draw_lines(H)
-    x = collect(range(-1, stop=1, length=3))
-    v = collect(range(0, stop=2*pi, length=100))
-    dessin = plot(sin.(v), cos.(v), color=:gray)
-    for l in H
-        plot!(dessin, x, point_in_line(l, x), color=:thistle)
-    end
-    plot!(dessin, xlims=(-1, 1), ylims=(-1, 1))
-end
-
-#dessin = draw_lines(H)
-
-
-

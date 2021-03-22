@@ -40,6 +40,3 @@ function hyperplanes_triangle(R, n::Int)::Array{Line}
     α = rand(angles ∪ -angles, n) 
     return Array([Line(α[k], radii[k]) for k in 1:n])
 end
-
-#hyperplanes_triangle(1, 10)
-
