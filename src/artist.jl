@@ -13,7 +13,7 @@ function draw_lines(H...)
     dessin = plot(sin.(v), cos.(v), color=:gray) #plot the circle
     for (i, arg) in enumerate(H)
         for l in arg
-            plot!(dessin, x, point_in_line(l, x), color=c[i%8])
+            plot!(dessin, x, point_in_line(l, x), color=:thistle)
         end
     end
     plot!(dessin, xlims=(-r, r), ylims=(-r, r), legend=:none, aspect_ratio=:equal)
