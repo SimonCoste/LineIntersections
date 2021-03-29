@@ -23,6 +23,8 @@ There is a (small) number of random line generators; for instance, for [Poisson
 
 <img src="docs/shift.gif" alt="poisson intersection" width="400"/>
 
+<img src="docs/rotate.gif" alt="poisson intersection" width="400"/>
+
 
 
 
