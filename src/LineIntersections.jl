@@ -1,6 +1,6 @@
 module LineIntersections
 
-using DataStructures, Plots
+using DataStructures, Plots, Distributions
 
 include("line_tools.jl")
 include("artist.jl")
